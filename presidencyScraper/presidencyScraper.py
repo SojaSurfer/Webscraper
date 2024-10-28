@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 import time
+from zipfile import ZipFile
 
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -28,10 +29,21 @@ class PresidencyScraper():
         self.unknownID = 'unknown'
         self.documents: dict[str, dict] = {}
 
+        self._checkInitialURL()
         self.directories = self._getDirectories(override)
         
         self.logger = self._setLogger(logLevel)
         self.logger.info(f'{self.__class__.__qualname__} initialized')
+        return None
+
+
+    def _checkInitialURL(self, url:str=None) -> None:
+        if url is None:
+            url = self.initialURL
+        
+        if not url.startswith(self.baseURL):
+            raise ValueError(f'The provided url does not match the base url of {self.baseURL}')
+        
         return None
 
     @staticmethod
@@ -64,7 +76,8 @@ class PresidencyScraper():
                      'metadataCSV': rootDir / 'metadata.csv',
                      'metadataExcel': rootDir / 'metadata.xlsx',
                      'csv': rootDir / 'search_results.csv',
-                     'scrapedWebsites': rootDir / 'scrapedWebsites.txt'}
+                     'scrapedWebsites': rootDir / 'scrapedWebsites.txt',
+                     'zip': rootDir / 'documents.zip'}
         
         directory['scrapedWebsites'].touch()
         directory['content'].touch()
@@ -78,6 +91,7 @@ class PresidencyScraper():
         self.scrapeCounter = 0
         self.pageNr = 1
         url = initialURL if initialURL else self.initialURL
+        self._checkInitialURL(self, url)
         self.documents.clear()
         st = time.time()
 
@@ -250,6 +264,27 @@ class PresidencyScraper():
         return None
 
 
+    def resultToText(self) -> None:
+
+        linkSources = []
+
+        with open(self.directories['content'], 'r') as file:
+            content = json.load(file)
+
+        with ZipFile(self.directories['zip'], 'w') as myzip:
+
+            for i, (link, textDict) in tqdm(enumerate(content.items(), 1), ncols=80, desc='Creating txt files'):
+
+                myzip.writestr(f'speech{i:04d}.txt', textDict['text'])
+                linkSources.append(f'{i}, {link}')
+
+            linkSourceText = '\n'.join(linkSources)
+            myzip.writestr(f'sources.csv', linkSourceText)
+        
+        return None
+
+
+
 
 
 if __name__ == '__main__':
@@ -261,6 +296,7 @@ if __name__ == '__main__':
     
     scraper.scrapeContent(limit=600)
     scraper.resultToDataframe()
+    scraper.resultToText()
 
 
 

@@ -1,6 +1,6 @@
 """A tool for scraping www.presidency.ucsb.edu."""
 
-__version__ = '2.1'
+__version__ = '2.2'
 
 from datetime import datetime
 from collections import defaultdict
@@ -18,12 +18,16 @@ from tqdm import tqdm
 
 
 class PresidencyScraper():
-    """A class for web scraping speeches from www.presidency.ucsb.edu."""
+    """A class for web scraping speeches from www.presidency.ucsb.edu. The class saves it in a json file but is able to
+    convert it to txt. It also can save the metadata as a csv/excel file.
+    """
 
 
-    def __init__(self, initialURL:str, timeout:float=1.0, logLevel:int=20, override:bool=True):
+    def __init__(self, initialURL:str, timeout:float=1.0, logLevel:int=20, override:bool=True, include:dict[str, list]={}, exclude:dict[str, list]={}):
         self.initialURL = initialURL
         self.timeout = timeout
+        self.include = include
+        self.exclude = exclude
 
         self.baseURL = 'https://www.presidency.ucsb.edu'
         self.unknownID = 'unknown'
@@ -38,16 +42,26 @@ class PresidencyScraper():
 
 
     def _checkInitialURL(self, url:str=None) -> None:
+        """The method checks if the provided url is reachable and if it points to the correct webpage."""
+
         if url is None:
             url = self.initialURL
         
         if not url.startswith(self.baseURL):
             raise ValueError(f'The provided url does not match the base url of {self.baseURL}')
         
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Raise an HTTPError for bad responses
+        except requests.RequestException as e:
+            raise ValueError(f'The provided url is not reachable: {url}. Error: {e}')
+
         return None
 
     @staticmethod
     def _setLogger(logLevel:int) -> logging.Logger:
+        """The method sets up a basic logger for the class."""
+
         logger = logging.getLogger('scraperLogger')
         logger.setLevel(logLevel)
 
@@ -61,6 +75,8 @@ class PresidencyScraper():
     
     @staticmethod
     def _getDirectories(override:bool) -> dict[str, Path]:
+        """The method creates a dictionary with the paths to the directories and files that will be created during the scraping process."""
+
         if override:
             root = 'PresidencyScraperResult'
         else:
@@ -86,18 +102,18 @@ class PresidencyScraper():
 
 
     def scrapeContent(self, initialURL:str=None, limit:int=None) -> None:
+        """The method scrapes has the main loop for scraping the contents of the website. It saves the content in a json file."""
         
         i = 0
         self.scrapeCounter = 0
         self.pageNr = 1
         url = initialURL if initialURL else self.initialURL
-        self._checkInitialURL(self, url)
+        self._checkInitialURL(url)
         self.documents.clear()
         st = time.time()
 
         with open(self.directories['scrapedWebsites'], 'r') as file:
             scrapedLinks = {link.strip('\n') for link in file.readlines() if not link.strip() == '\n'}
-
 
         try:
             # check for already scraped websites and add scraped website to the file.
@@ -117,7 +133,6 @@ class PresidencyScraper():
                             self._scrapePage(link)  # scrape the data into self.documents dictionary
                             file.write(f'{link}\n')
                             scrapedLinks.add(link)
-                            self.scrapeCounter += 1
 
                         i += 1
                         if limit is not None and i >= limit:
@@ -140,6 +155,7 @@ class PresidencyScraper():
 
 
     def _logEndMsg(self, st:float) -> None:
+        """The method logs the end message of the scraping process."""
 
         totalSeconds = time.time() - st
         hours, remainingSeconds = divmod(totalSeconds, 60*60)
@@ -150,6 +166,7 @@ class PresidencyScraper():
 
 
     def saveJson(self) -> None:
+        """The method saves the self.documents dictionary to a json file."""
         
         try:
             with open(self.directories['content'], "r") as file:
@@ -169,6 +186,7 @@ class PresidencyScraper():
 
 
     def _getNextPage(self, soup:BeautifulSoup) -> str|None:
+        """The method finds the link to the next page of the search results and returns it if there is any."""
         
         searchResultPageLink = soup.find("a", {"title": "Go to next page"})
 
@@ -180,16 +198,37 @@ class PresidencyScraper():
 
 
     def _scrapePage(self, link:str) -> None:
+        """The method scrapes the content of a single page and saves it in the self.documents dictionary."""
+
         page = requests.get(link)
         soup = BeautifulSoup(page.text, "html.parser")
 
-        self.documents[link] = self._findPageElements(soup)
+        elements = self._findPageElements(soup)
+
+        if self.elemsAreInScope(elements):
+            self.documents[link] = elements
+            self.scrapeCounter += 1
 
         time.sleep(self.timeout)
         return None
 
+    def elemsAreInScope(self, elements:dict) -> bool:
+        """The method checks if the elements of a page are in the scope of the scraper, i.e. checking with the include and exclude dictionary.."""
 
-    def _findPageElements(self, soup:BeautifulSoup) -> dict: 
+        for key, includeValues in self.include.items():
+            if includeValues and not elements[key] in includeValues:
+                return False
+        
+        for key, excludeValues in self.exclude.items():
+            if elements[key] in excludeValues:
+                return False
+        
+        return True
+
+
+    def _findPageElements(self, soup:BeautifulSoup) -> dict:
+        """The method finds the wanted elements of a page and returns them in a dictionary."""
+
         text = soup.find("div", {"class": "field-docs-content"}).text
         date = soup.find("span", {"class": "date-display-single"}).text
         title = self._formatString(soup.find("div", {"class": "field-ds-doc-title"}).text)
@@ -218,6 +257,8 @@ class PresidencyScraper():
 
     @staticmethod
     def _formatString(string:str) -> str:
+        """The method formats a string by stripping it of leading and trailing whitespaces and newline characters."""
+
         string = string.strip('\n')
         string = string.strip()
 
@@ -225,6 +266,8 @@ class PresidencyScraper():
 
 
     def _cityFromTitle(self, title:str, state:str) -> str:
+        """The method tries to extract the city from the title of the speech. If it fails, it returns the unknownID."""
+
         if state and state != self.unknownID:
             if title.endswith(state):
                 address = title.split(' in ')[-1]
@@ -236,9 +279,14 @@ class PresidencyScraper():
 
     def resultToDataframe(self) -> None:
         """The method creates a excel and csv file for the metadata found in the json file."""
+
         self.logger.debug('Starting resultToDataframe method...')
 
         contentAgg = defaultdict(list)
+
+        populationPath = 'presidencyScraper/USPopulation/SUB-EST2020_ALL.csv'
+        self.populationDF = pd.read_csv(populationPath, sep=',')
+
 
         with open(self.directories['content'], 'r') as file:
             content = json.load(file)
@@ -254,7 +302,10 @@ class PresidencyScraper():
         
 
         df = pd.DataFrame.from_dict(contentAgg)
-        df = df[['speaker', 'date', 'state', 'city', 'title', 'citation', 'categories', 'link']]
+
+        df['population'] = df.apply(lambda row: self._addPopulationCount(self.populationDF, row['state'], row['city']), axis=1)
+
+        df = df[['speaker', 'date', 'state', 'city', 'population', 'title', 'citation', 'categories', 'link']]
 
         df.to_csv(self.directories['metadataCSV'])
         df.to_excel(self.directories['metadataExcel'])
@@ -265,6 +316,7 @@ class PresidencyScraper():
 
 
     def resultToText(self) -> None:
+        """The method creates a zip file with the text of the speeches and a csv file with the sources."""
 
         linkSources = []
 
@@ -283,18 +335,37 @@ class PresidencyScraper():
         
         return None
 
+    @staticmethod
+    def _addPopulationCount(populationDF:pd.DataFrame, state:str, city:str) -> int:
+        """The method adds the population count of a city to the dataframe."""
+
+        populationCol = 'CENSUS2010POP'
+
+        # get all rows matching the (beginning of the) city name
+        cityDF = populationDF.loc[populationDF['NAME'].str.startswith(city)]
+
+        # get a list of all elements of the population column where the state matches
+        result = cityDF.loc[populationDF['STNAME'] == state].get(populationCol).to_list()
+
+        if result:
+            population = int(result[-1])
+        else:
+            population = -1
+
+        return population
 
 
 
 
 if __name__ == '__main__':
     
-    url = "https://www.presidency.ucsb.edu/advanced-search?field-keywords=&field-keywords2=&field-keywords3=&from%5Bdate%5D=&to%5Bdate%5D=&person2=200320&category2%5B0%5D=51&category2%5B1%5D=10&items_per_page=100"
+    url =  "https://www.presidency.ucsb.edu/advanced-search?field-keywords=&field-keywords2=&field-keywords3=&from%5Bdate%5D=01-01-2008&to%5Bdate%5D=10-28-2024&person2=&category2%5B0%5D=63&items_per_page=100&f%5B0%5D=field_docs_attributes%3A205"
 
+    include = {'speaker': ['John McCain', 'Hillary Clinton', 'Barack Obama', 'Donald J. Trump', 'Joseph R. Biden, Jr.', 'Mitt Romney']}
 
-    scraper = PresidencyScraper(url, timeout=2.1)
+    scraper = PresidencyScraper(url, timeout=2.1, include=include)
     
-    scraper.scrapeContent(limit=600)
+    scraper.scrapeContent(limit=80)
     scraper.resultToDataframe()
     scraper.resultToText()
 

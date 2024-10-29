@@ -1,6 +1,23 @@
-"""A tool for scraping www.presidency.ucsb.edu."""
+""" PresidencyScraper: A web scraper for speeches from www.presidency.ucsb.edu. """
 
-__version__ = '2.2'
+__version__ = '2.3'
+
+# Copyright (C) 2024 Julian Wagner
+# This file is part of the PresidencyScraper project.
+#
+# PresidencyScraper is under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# PresidencyScraper is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with PresidencyScraper. If not, see <http://www.gnu.org/licenses/>.
+
+
 
 from datetime import datetime
 from collections import defaultdict
@@ -18,12 +35,39 @@ from tqdm import tqdm
 
 
 class PresidencyScraper():
-    """A class for web scraping speeches from www.presidency.ucsb.edu. The class saves it in a json file but is able to
-    convert it to txt. It also can save the metadata as a csv/excel file.
+    """A class for web scraping from www.presidency.ucsb.edu. This class provides methods to scrape speeches, save the content in 
+    various formats (JSON, TXT, CSV, Excel), and filter the scraped data based on include and exclude criteria. It also logs the 
+    scraping process and handles directory and file management for the scraped data.
+
+    Arguments:
+        initialURL (str): The initial URL to start scraping from. It is created by adjusting the advanced search found here https://www.presidency.ucsb.edu/advanced-search.
+        timeout (float): The timeout between requests to avoid overloading the server. Set with caution.
+        logLevel (int): The log level for the logger (default Python values).
+        override (bool): A flag to indicate if the output directory should be overridden.
+        include (dict): A dictionary specifying the metadata keys and their corresponding values to include in the scraping. -> see metadataKeys
+        exclude (dict): A dictionary specifying the metadata keys and their corresponding values to exclude from the scraping. -> see metadataKeys
+    
+    Class Attributes:
+        metadataKeys (list): A list of keys representing the metadata fields to be scraped.
+        subStrSuffix (str): A suffix used to identify substring keys in the include and exclude dictionaries.
+        unknownID (str): A string to represent missing values in the city and state fields.
+
+    Main Methods:
+        scrape(initialURL=None, limit=None): 
+            Scrapes the content of the website and stores it as JSON, TXT, and metadata as CSV/Excel.
+        scrapeContent(initialURL=None, limit=None):
+            The main loop for scraping the contents of the website. Saves the content in a JSON file.
+            Tries to extract the city from the title of the speech. If it fails, it returns the unknownID.
+        resultToDataframe():
+            Creates an Excel and CSV file for the metadata found in the JSON file.
+        resultToText():
+            Creates a ZIP file with the text of the speeches and a CSV file with the sources.
+    
     """
     
     metadataKeys = ['text', 'date', 'title', 'speaker', 'citation', 'state', 'city', 'categories']
     subStrSuffix = '_substring'
+    unknownID = 'unknown'
 
 
     def __init__(self, initialURL:str, timeout:float=1.0, logLevel:int=20, override:bool=True, include:dict[str, list]={}, exclude:dict[str, list]={}):
@@ -33,10 +77,7 @@ class PresidencyScraper():
         self.exclude = exclude
 
         self.baseURL = 'https://www.presidency.ucsb.edu'
-        self.unknownID = 'unknown'
         self.documents: dict[str, dict] = {}
-
-
 
         self._checkInitialURL()
         self._checkIncludeExclude()
@@ -125,6 +166,15 @@ class PresidencyScraper():
         return directory
 
 
+    def scrape(self, initialURL:str=None, limit:int=None) -> None:
+        """The method scrapes the content of the website and stores it as .json as well as txt files and metadata as csv/excel."""
+
+        self.scrapeContent(initialURL, limit)
+        self.resultToDataframe()
+        self.resultToText()
+        return None
+
+
     def scrapeContent(self, initialURL:str=None, limit:int=None) -> None:
         """The method scrapes has the main loop for scraping the contents of the website. It saves the content in a json file."""
         
@@ -172,7 +222,7 @@ class PresidencyScraper():
             self.logger.error(e)
         
         finally:
-            self.saveJson()
+            self._saveJson()
             self._logEndMsg(st)
                     
         return None
@@ -189,7 +239,7 @@ class PresidencyScraper():
         return None
 
 
-    def saveJson(self) -> None:
+    def _saveJson(self) -> None:
         """The method saves the self.documents dictionary to a json file."""
         
         try:
@@ -401,8 +451,6 @@ if __name__ == '__main__':
 
     scraper = PresidencyScraper(url, timeout=2.1, include=include, exclude=exclude)
 
-    scraper.scrapeContent(limit=8)
-    scraper.resultToDataframe()
-    scraper.resultToText()
+    scraper.scrape(limit=8)
 
 

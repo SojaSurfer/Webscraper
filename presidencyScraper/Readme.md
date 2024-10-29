@@ -2,7 +2,7 @@
 The PresidencyScraper is a class for web scraping from www.presidency.ucsb.edu. This class provides methods to scrape speeches, save the content in various formats (JSON, TXT, CSV, Excel), and filter the scraped data based on include and exclude criteria. It also logs the scraping process and handles directory and file management for the scraped data.
 
 ## 1 Getting started
-Change the url variable (and timeout, include/exclude) at the bottom and run the script.
+Change the url variable (and timeout, include/exclude) at the bottom and run the script. The script is thoroughly tested with Python 3.12.
 
 ```
 if __name__ = '__main__':
@@ -11,7 +11,6 @@ if __name__ = '__main__':
     scraper = PresidencyScraper(url, timeout=1.5)
     scraper.scrape(limit=20)
 ```
-The script is thoroughly tested with Python 3.12.
 
 ## 2 Documentation
 

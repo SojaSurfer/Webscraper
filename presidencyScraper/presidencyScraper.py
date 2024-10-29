@@ -18,7 +18,6 @@ __version__ = '2.3'
 # along with PresidencyScraper. If not, see <http://www.gnu.org/licenses/>.
 
 
-
 from datetime import datetime
 from collections import defaultdict
 import json

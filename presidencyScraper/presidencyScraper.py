@@ -70,9 +70,15 @@ class PresidencyScraper():
 
         for scope, name in [(self.include, 'include'), (self.exclude, 'exclude')]:
             
+            # checks if all keys are inside self.meatadataKeys
             if not all([key.replace(self.subStrSuffix, '') in self.metadataKeys for key in scope.keys()]):
                 invalidKeys = [key for key in scope.keys() if key.replace(self.subStrSuffix, '') not in self.metadataKeys]
                 raise ValueError(f'The {name} argument contains invalid keys which are not present in self.metadataKeys: {invalidKeys}')
+
+            # checks if all values are lists
+            if not all([isinstance(value, list) for value in scope.values()]):
+                invalidValues = [key for key, value in scope.items() if not isinstance(value, list)]
+                raise ValueError(f'The {name} argument contains invalid values which are not lists: {invalidValues}')
 
         return None
 
@@ -390,7 +396,7 @@ if __name__ == '__main__':
     
     url =  "https://www.presidency.ucsb.edu/advanced-search?field-keywords=&field-keywords2=&field-keywords3=&from%5Bdate%5D=01-01-2008&to%5Bdate%5D=10-28-2024&person2=&category2%5B0%5D=63&items_per_page=100&f%5B0%5D=field_docs_attributes%3A205"
 
-    include = {'speaker': ['John McCain', 'Hillary Clinton', 'Barack Obama', 'Donald J. Trump', 'Joseph R. Biden, Jr.', 'Mitt Romney']}
+    include = {'speaker': ['John McCain', 'Barack Obama', 'Mitt Romney', 'Hillary Clinton', 'Donald J. Trump', 'Joseph R. Biden, Jr.', 'Kamala Harris']}
     exclude = {'title_substring': ['Press Release']}
 
     scraper = PresidencyScraper(url, timeout=2.1, include=include, exclude=exclude)

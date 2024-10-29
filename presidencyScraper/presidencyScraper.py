@@ -21,6 +21,9 @@ class PresidencyScraper():
     """A class for web scraping speeches from www.presidency.ucsb.edu. The class saves it in a json file but is able to
     convert it to txt. It also can save the metadata as a csv/excel file.
     """
+    
+    metadataKeys = ['text', 'date', 'title', 'speaker', 'citation', 'state', 'city', 'categories']
+    subStrSuffix = '_substring'
 
 
     def __init__(self, initialURL:str, timeout:float=1.0, logLevel:int=20, override:bool=True, include:dict[str, list]={}, exclude:dict[str, list]={}):
@@ -33,7 +36,10 @@ class PresidencyScraper():
         self.unknownID = 'unknown'
         self.documents: dict[str, dict] = {}
 
+
+
         self._checkInitialURL()
+        self._checkIncludeExclude()
         self.directories = self._getDirectories(override)
         
         self.logger = self._setLogger(logLevel)
@@ -55,6 +61,18 @@ class PresidencyScraper():
             response.raise_for_status()  # Raise an HTTPError for bad responses
         except requests.RequestException as e:
             raise ValueError(f'The provided url is not reachable: {url}. Error: {e}')
+
+        return None
+
+
+    def _checkIncludeExclude(self) -> None:
+        """The method checks if the keys of the include and exclude dictionaries are valid, i.e. they are present in the metadata keys."""
+
+        for scope, name in [(self.include, 'include'), (self.exclude, 'exclude')]:
+            
+            if not all([key.replace(self.subStrSuffix, '') in self.metadataKeys for key in scope.keys()]):
+                invalidKeys = [key for key in scope.keys() if key.replace(self.subStrSuffix, '') not in self.metadataKeys]
+                raise ValueError(f'The {name} argument contains invalid keys which are not present in self.metadataKeys: {invalidKeys}')
 
         return None
 
@@ -205,24 +223,35 @@ class PresidencyScraper():
 
         elements = self._findPageElements(soup)
 
-        if self.elemsAreInScope(elements):
+        if self._pageIsInSearchScope(elements):
             self.documents[link] = elements
             self.scrapeCounter += 1
 
         time.sleep(self.timeout)
         return None
 
-    def elemsAreInScope(self, elements:dict) -> bool:
+
+    def _pageIsInSearchScope(self, elements:dict[str, str]) -> bool:
         """The method checks if the elements of a page are in the scope of the scraper, i.e. checking with the include and exclude dictionary.."""
 
         for key, includeValues in self.include.items():
-            if includeValues and not elements[key] in includeValues:
-                return False
-        
+            if key in elements.keys():
+                if includeValues and not elements[key] in includeValues:
+                    return False
+            else:
+                elem = elements[key.replace(self.subStrSuffix, '')]
+                if not all(value in elem for value in includeValues):
+                    return False
+ 
         for key, excludeValues in self.exclude.items():
-            if elements[key] in excludeValues:
-                return False
-        
+            if key in elements.keys():
+                if elements[key] in excludeValues:
+                    return False
+            else:
+                elem = elements[key.replace(self.subStrSuffix, '')]
+                if any(value in elem for value in excludeValues):
+                    return False
+            
         return True
 
 
@@ -243,7 +272,7 @@ class PresidencyScraper():
         city = self._cityFromTitle(title, state)
 
         categoryContainer = soup.find("div", {"class": "menu-block-wrapper menu-block-7 menu-name-menu-doc-cat-menu parent-mlid-0 menu-level-1"})
-        categories = [element.get("title") for element in categoryContainer.find_all(class_="dropdown-toggle") if element.get("title")]
+        categories = ', '.join([element.get("title") for element in categoryContainer.find_all(class_="dropdown-toggle") if element.get("title")])
 
         elements = {"text": text,
                     "date": date,
@@ -362,13 +391,12 @@ if __name__ == '__main__':
     url =  "https://www.presidency.ucsb.edu/advanced-search?field-keywords=&field-keywords2=&field-keywords3=&from%5Bdate%5D=01-01-2008&to%5Bdate%5D=10-28-2024&person2=&category2%5B0%5D=63&items_per_page=100&f%5B0%5D=field_docs_attributes%3A205"
 
     include = {'speaker': ['John McCain', 'Hillary Clinton', 'Barack Obama', 'Donald J. Trump', 'Joseph R. Biden, Jr.', 'Mitt Romney']}
+    exclude = {'title_substring': ['Press Release']}
 
-    scraper = PresidencyScraper(url, timeout=2.1, include=include)
-    
-    scraper.scrapeContent(limit=80)
+    scraper = PresidencyScraper(url, timeout=2.1, include=include, exclude=exclude)
+
+    scraper.scrapeContent(limit=8)
     scraper.resultToDataframe()
     scraper.resultToText()
-
-
 
 

@@ -8,8 +8,10 @@ __pycache__/
 # testing
 test/*
 test.py
-
+data.xml
 
 # ignore results
+presidencyScraper/PresidencyScraper*
 presidencyScraper/PresidencyScraperResult/*
 presidencyScraper/PresidencyScraperResult_600Biden/*
+

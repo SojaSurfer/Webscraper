@@ -22,6 +22,7 @@ from datetime import datetime
 from collections import defaultdict
 import json
 import logging
+from operator import itemgetter
 from pathlib import Path
 import time
 from zipfile import ZipFile
@@ -69,7 +70,8 @@ class PresidencyScraper():
     unknownID = 'unknown'
 
 
-    def __init__(self, initialURL:str, timeout:float=1.0, logLevel:int=20, override:bool=True, include:dict[str, list]={}, exclude:dict[str, list]={}):
+    def __init__(self, initialURL:str, timeout:float=1.0, logLevel:int=20, override:bool=True, include:dict[str, list]={}, exclude:dict[str, list]={},
+                 customRootDir:str=None):
         self.initialURL = initialURL
         self.timeout = timeout
         self.include = include
@@ -80,7 +82,7 @@ class PresidencyScraper():
 
         self._checkInitialURL()
         self._checkIncludeExclude()
-        self.directories = self._getDirectories(override)
+        self.directories = self._getDirectories(override, customRootDir)
         
         self.logger = self._setLogger(logLevel)
         self.logger.info(f'{self.__class__.__qualname__} initialized')
@@ -138,13 +140,15 @@ class PresidencyScraper():
         return logger
     
     @staticmethod
-    def _getDirectories(override:bool) -> dict[str, Path]:
+    def _getDirectories(override:bool, customRootDir:str=None) -> dict[str, Path]:
         """The method creates a dictionary with the paths to the directories and files that will be created during the scraping process."""
 
-        if override:
+        if customRootDir:
+            root = customRootDir
+        elif override:
             root = 'PresidencyScraperResult'
         else:
-            root = 'PresidencyScraperResult' + datetime.now().strftime("%Y-%m-$d_%H-%M-%S")
+            root = 'PresidencyScraperResult' + datetime.now().strftime("%Y-%m-%D_%H-%M-%S")
 
 
         rootDir = Path(__file__).parent / root
@@ -157,7 +161,7 @@ class PresidencyScraper():
                      'metadataExcel': rootDir / 'metadata.xlsx',
                      'csv': rootDir / 'search_results.csv',
                      'scrapedWebsites': rootDir / 'scrapedWebsites.txt',
-                     'zip': rootDir / 'documents.zip'}
+                     'zip': rootDir / 'corpora.zip'}
         
         directory['scrapedWebsites'].touch()
         directory['content'].touch()
@@ -368,7 +372,7 @@ class PresidencyScraper():
 
         contentAgg = defaultdict(list)
 
-        populationPath = 'presidencyScraper/USPopulation/SUB-EST2020_ALL.csv'
+        populationPath = 'presidencyScraper/USPopulation/SUB-EST2020_ALL_adj.csv'
         self.populationDF = pd.read_csv(populationPath, sep=',')
 
 
@@ -387,9 +391,13 @@ class PresidencyScraper():
 
         df = pd.DataFrame.from_dict(contentAgg)
 
+
         df['population'] = df.apply(lambda row: self._addPopulationCount(self.populationDF, row['state'], row['city']), axis=1)
 
         df = df[['speaker', 'date', 'state', 'city', 'population', 'title', 'citation', 'categories', 'link']]
+
+
+        df['date'] = pd.to_datetime(df['date'], format='%B %d, %Y').dt.date
 
         df.to_csv(self.directories['metadataCSV'])
         df.to_excel(self.directories['metadataExcel'])
@@ -431,6 +439,7 @@ class PresidencyScraper():
         # get a list of all elements of the population column where the state matches
         result = cityDF.loc[populationDF['STNAME'] == state].get(populationCol).to_list()
 
+
         if result:
             population = int(result[-1])
         else:
@@ -439,17 +448,79 @@ class PresidencyScraper():
         return population
 
 
+    def analyzeMetadata(self, path:str = None) -> None:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        
+
+        if path is None:
+            path = self.directories['metadataCSV']
+        else:
+            path = Path(path)
+        
+        df = pd.read_csv(path)
+
+        output = path.parent / 'visualization.png' 
+
+        partyColor = {'John McCain': 'red', 'Barack Obama': 'blue', 
+                      'Mitt Romney': 'red', 'Hillary Clinton': 'blue', 
+                      'Donald J. Trump': 'red', 'Joseph R. Biden, Jr.': 'blue', 
+                      'Kamala Harris': 'blue'}
+
+
+        sns.set_style('darkgrid')
+        fig, axes = plt.subplots(3, 1, figsize=(14, 12))
+
+        # speeches per candidate
+        speakers = df['speaker'].value_counts()
+
+        ig = itemgetter(*speakers.index)
+
+        axes[0].bar(speakers.index, speakers.values, color=ig(partyColor))
+        axes[0].set_title('Number of Speeches per Candidate')
+
+
+        # speeches per date
+        df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d')
+        df['month'] = df['date'].dt.to_period('M')  # Convert to monthly period
+
+        speechesDate = df['month'].value_counts(sort=False)
+
+        axes[1].scatter(speechesDate.index.to_timestamp(), speechesDate.values, color='orange')
+
+        axes[1].set_title('Speeches in the Dataset')
+        axes[1].set_ylim(bottom=0)
+        axes[1].set_xlim([speechesDate.index[0], speechesDate.index[-1]])
+
+
+        # speeches per state
+        states = df['state'].value_counts()
+
+        axes[2].bar(states.index, states.values, color='green')
+        axes[2].set_title('State of the Speech')
+        axes[2].set_xlim([0, len(states)])
+        axes[2].tick_params(axis='x', rotation=45, labelsize=8) 
+        
+        # axes[2].pie(states.values, labels=states.index)
+        # axes[2].set_title('State of the Speech')
+
+
+        plt.tight_layout()
+        # plt.show()
+        plt.savefig(output)
+        plt.close()
+        return None
+
 
 
 if __name__ == '__main__':
     
-    url =  "https://www.presidency.ucsb.edu/advanced-search?field-keywords=&field-keywords2=&field-keywords3=&from%5Bdate%5D=01-01-2008&to%5Bdate%5D=10-28-2024&person2=&category2%5B0%5D=63&items_per_page=100&f%5B0%5D=field_docs_attributes%3A205"
+    url = "https://www.presidency.ucsb.edu/advanced-search?field-keywords=&field-keywords2=&field-keywords3=&from%5Bdate%5D=01-01-2008&to%5Bdate%5D=11-08-2024&person2=&category2%5B0%5D=63&items_per_page=100&f%5B0%5D=field_docs_attributes%3A205"
 
     include = {'speaker': ['John McCain', 'Barack Obama', 'Mitt Romney', 'Hillary Clinton', 'Donald J. Trump', 'Joseph R. Biden, Jr.', 'Kamala Harris']}
     exclude = {'title_substring': ['Press Release']}
 
-    scraper = PresidencyScraper(url, timeout=2.1, include=include, exclude=exclude)
+    scraper = PresidencyScraper(url, timeout=1.5, include=include, exclude=exclude, override=False, customRootDir='PresidencyScraperResult2024-11-09_22-01-49')
 
-    scraper.scrape(limit=8)
-
+    scraper.scrape(limit=20)
 
